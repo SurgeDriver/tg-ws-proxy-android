@@ -71,9 +71,9 @@ def load_config() -> dict:
                 return dict(DEFAULT_CONFIG)
             return data
         except json.JSONDecodeError as exc:
-            log.warning("Config file is not valid JSON: %s — using defaults", exc)
+            log.warning("Config file is not valid JSON: %s - using defaults", exc)
         except Exception as exc:
-            log.warning("Failed to load config: %s — using defaults", exc)
+            log.warning("Failed to load config: %s - using defaults", exc)
     return dict(DEFAULT_CONFIG)
 
 
@@ -138,13 +138,14 @@ def start_proxy():
 
 def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
     """Background watchdog: restarts the proxy thread if it dies unexpectedly."""
+    global _proxy_thread  # declared at top of function to satisfy Python scoping rules
     consecutive_crashes = 0
     while True:
         time.sleep(2)
         if _proxy_thread is None or not _proxy_thread.is_alive():
             if consecutive_crashes >= _RESTART_MAX:
                 log.error(
-                    "Proxy crashed %d times in a row — giving up. "
+                    "Proxy crashed %d times in a row - giving up. "
                     "Restart the app manually.",
                     consecutive_crashes,
                 )
@@ -156,7 +157,6 @@ def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
                 _RESTART_DELAY,
             )
             time.sleep(_RESTART_DELAY)
-            global _proxy_thread
             _proxy_thread = threading.Thread(
                 target=_run_proxy_thread,
                 args=(port, dc_opt, verbose, host),
