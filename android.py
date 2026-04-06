@@ -26,8 +26,8 @@ DEFAULT_CONFIG = {
     "verbose": False,
 }
 
-_RESTART_DELAY = 5
-_RESTART_MAX   = 10
+_RESTART_DELAY_BASE = 5
+_RESTART_DELAY_MAX  = 120
 
 _proxy_thread: Optional[threading.Thread] = None
 _async_stop: Optional[object] = None
@@ -123,18 +123,25 @@ def start_proxy():
 
 
 def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
+    """Restarts the proxy thread on crash with exponential backoff.
+    No hard limit on attempts — delay grows 5s -> 10s -> 20s -> ... -> 120s cap.
+    """
     global _proxy_thread
     consecutive_crashes = 0
+
     while True:
         time.sleep(2)
+
         if _proxy_thread is None or not _proxy_thread.is_alive():
-            if consecutive_crashes >= _RESTART_MAX:
-                log.error("Proxy crashed %d times — giving up.", consecutive_crashes)
-                break
             consecutive_crashes += 1
-            log.warning("Proxy died (crash #%d), restarting in %ds...",
-                        consecutive_crashes, _RESTART_DELAY)
-            time.sleep(_RESTART_DELAY)
+            delay = min(_RESTART_DELAY_BASE * (2 ** (consecutive_crashes - 1)),
+                        _RESTART_DELAY_MAX)
+            log.warning(
+                "Proxy died (crash #%d), restarting in %ds...",
+                consecutive_crashes, delay,
+            )
+            time.sleep(delay)
+
             _proxy_thread = threading.Thread(
                 target=_run_proxy_thread,
                 args=(port, dc_opt, verbose, host),
@@ -151,7 +158,6 @@ def main():
     global _config
     _config = load_config()
 
-    # Use unified color logging from tg_ws_proxy
     tg_ws_proxy.setup_color_logging(
         logging.DEBUG if _config.get("verbose", False) else logging.INFO
     )
@@ -165,7 +171,7 @@ def main():
         dc_opt = tg_ws_proxy.parse_dc_ip_list(dc_ip_list)
     except ValueError as e:
         log.error("Bad dc_ip in config: %s", e)
-        import sys; sys.exit(1)
+        sys.exit(1)
 
     start_proxy()
 
