@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 import logging
-import os
 import sys
 import threading
 import time
@@ -22,8 +21,8 @@ DEFAULT_CONFIG = {
     "verbose": False,
 }
 
-_RESTART_DELAY = 5   # seconds between restart attempts
-_RESTART_MAX   = 10  # give up after this many consecutive crashes
+_RESTART_DELAY = 5
+_RESTART_MAX   = 10
 
 _proxy_thread: Optional[threading.Thread] = None
 _async_stop: Optional[object] = None
@@ -37,7 +36,6 @@ def _ensure_dirs():
 
 
 def _validate_config(data: dict) -> list[str]:
-    """Return list of validation error strings (empty = OK)."""
     errors = []
     port = data.get("port")
     if not isinstance(port, int) or not (1 <= port <= 65535):
@@ -67,11 +65,11 @@ def load_config() -> dict:
             if errs:
                 for e in errs:
                     log.warning("Config error: %s", e)
-                log.warning("Falling back to default config due to %d error(s) above", len(errs))
+                log.warning("Falling back to defaults due to %d error(s)", len(errs))
                 return dict(DEFAULT_CONFIG)
             return data
         except json.JSONDecodeError as exc:
-            log.warning("Config file is not valid JSON: %s - using defaults", exc)
+            log.warning("Config not valid JSON: %s - using defaults", exc)
         except Exception as exc:
             log.warning("Failed to load config: %s - using defaults", exc)
     return dict(DEFAULT_CONFIG)
@@ -119,7 +117,6 @@ def start_proxy():
         log.error("Bad config dc_ip: %s", e)
         return
 
-    log.info("Starting proxy on %s:%d ...", host, port)
     _proxy_thread = threading.Thread(
         target=_run_proxy_thread,
         args=(port, dc_opt, verbose, host),
@@ -128,34 +125,19 @@ def start_proxy():
     )
     _proxy_thread.start()
 
-    print("\n" + "=" * 40)
-    print("Proxy is running!")
-    print(f"Host: {host}")
-    print(f"Port: {port}")
-    print("Configure Telegram with these settings.")
-    print("=" * 40 + "\n")
-
 
 def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
-    """Background watchdog: restarts the proxy thread if it dies unexpectedly."""
-    global _proxy_thread  # declared at top of function to satisfy Python scoping rules
+    global _proxy_thread
     consecutive_crashes = 0
     while True:
         time.sleep(2)
         if _proxy_thread is None or not _proxy_thread.is_alive():
             if consecutive_crashes >= _RESTART_MAX:
-                log.error(
-                    "Proxy crashed %d times in a row - giving up. "
-                    "Restart the app manually.",
-                    consecutive_crashes,
-                )
+                log.error("Proxy crashed %d times — giving up.", consecutive_crashes)
                 break
             consecutive_crashes += 1
-            log.warning(
-                "Proxy thread is dead (crash #%d). Restarting in %ds...",
-                consecutive_crashes,
-                _RESTART_DELAY,
-            )
+            log.warning("Proxy died (crash #%d), restarting in %ds...",
+                        consecutive_crashes, _RESTART_DELAY)
             time.sleep(_RESTART_DELAY)
             _proxy_thread = threading.Thread(
                 target=_run_proxy_thread,
@@ -174,8 +156,6 @@ def main():
     _config = load_config()
     setup_logging(_config.get("verbose", False))
 
-    log.info("Starting Android TG WS Proxy...")
-
     port = _config.get("port", DEFAULT_CONFIG["port"])
     host = _config.get("host", DEFAULT_CONFIG["host"])
     dc_ip_list = _config.get("dc_ip", DEFAULT_CONFIG["dc_ip"])
@@ -185,7 +165,7 @@ def main():
         dc_opt = tg_ws_proxy.parse_dc_ip_list(dc_ip_list)
     except ValueError as e:
         log.error("Bad dc_ip in config: %s", e)
-        sys.exit(1)
+        import sys; sys.exit(1)
 
     start_proxy()
 
@@ -201,7 +181,7 @@ def main():
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\nStopping...")
+        print("\nStopped.")
 
 
 if __name__ == "__main__":

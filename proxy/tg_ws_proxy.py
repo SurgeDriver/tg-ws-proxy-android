@@ -18,61 +18,43 @@ DEFAULT_PORT = 1080
 log = logging.getLogger('tg-ws-proxy')
 
 _TG_RANGES = [
-    # 185.76.151.0/24
     (struct.unpack('!I', _socket.inet_aton('185.76.151.0'))[0],
      struct.unpack('!I', _socket.inet_aton('185.76.151.255'))[0]),
-    # 149.154.160.0/20
     (struct.unpack('!I', _socket.inet_aton('149.154.160.0'))[0],
      struct.unpack('!I', _socket.inet_aton('149.154.175.255'))[0]),
-    # 91.105.192.0/23
     (struct.unpack('!I', _socket.inet_aton('91.105.192.0'))[0],
      struct.unpack('!I', _socket.inet_aton('91.105.193.255'))[0]),
-    # 91.108.0.0/16
     (struct.unpack('!I', _socket.inet_aton('91.108.0.0'))[0],
      struct.unpack('!I', _socket.inet_aton('91.108.255.255'))[0]),
 ]
 
-# IP -> (dc_id, is_media)
 _IP_TO_DC: Dict[str, Tuple[int, bool]] = {
-    # DC1
     '149.154.175.50': (1, False), '149.154.175.51': (1, False),
     '149.154.175.53': (1, False), '149.154.175.54': (1, False),
     '149.154.175.52': (1, True),
-    # DC2
     '149.154.167.41': (2, False), '149.154.167.50': (2, False),
     '149.154.167.51': (2, False), '149.154.167.220': (2, False),
     '95.161.76.100':  (2, False),
     '149.154.167.151': (2, True), '149.154.167.222': (2, True),
-    '149.154.167.223': (2, True), 
-    # DC3
+    '149.154.167.223': (2, True),
     '149.154.175.100': (3, False), '149.154.175.101': (3, False),
     '149.154.175.102': (3, True),
-    # DC4
     '149.154.167.91': (4, False), '149.154.167.92': (4, False),
     '149.154.164.250': (4, True), '149.154.166.120': (4, True),
     '149.154.166.121': (4, True), '149.154.167.118': (4, True),
     '149.154.165.111': (4, True),
-    # DC5
     '91.108.56.100': (5, False), '91.108.56.101': (5, False),
     '91.108.56.116': (5, False), '91.108.56.126': (5, False),
     '149.154.171.5':  (5, False),
     '91.108.56.102': (5, True), '91.108.56.128': (5, True),
     '91.108.56.151': (5, True),
-    # DC203
     '91.105.192.100': (203, False),
 }
 
 _dc_opt: Dict[int, Optional[str]] = {}
-
-# DCs where WS is known to fail (302 redirect)
-# Raw TCP fallback will be used instead
-# Keyed by (dc, is_media)
 _ws_blacklist: Set[Tuple[int, bool]] = set()
-
-# Rate-limit re-attempts per (dc, is_media)
 _dc_fail_until: Dict[Tuple[int, bool], float] = {}
-_DC_FAIL_COOLDOWN = 60.0  # seconds
-
+_DC_FAIL_COOLDOWN = 60.0
 
 _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
@@ -102,14 +84,6 @@ def _xor_mask(data: bytes, mask: bytes) -> bytes:
 
 
 class RawWebSocket:
-    """
-    Lightweight WebSocket client over asyncio reader/writer streams.
-
-    Connects DIRECTLY to a target IP via TCP+TLS (bypassing any system
-    proxy), performs the HTTP Upgrade handshake, and provides send/recv
-    for binary frames with proper masking, ping/pong, and close handling.
-    """
-
     OP_CONTINUATION = 0x0
     OP_TEXT = 0x1
     OP_BINARY = 0x2
@@ -126,12 +100,6 @@ class RawWebSocket:
     @staticmethod
     async def connect(ip: str, domain: str, path: str = '/apiws',
                       timeout: float = 10.0) -> 'RawWebSocket':
-        """
-        Connect via TLS to the given IP,
-        perform WebSocket upgrade, return a RawWebSocket.
-
-        Raises WsHandshakeError on non-101 response.
-        """
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(ip, 443, ssl=_ssl_ctx,
                                     server_hostname=domain),
@@ -155,17 +123,13 @@ class RawWebSocket:
         writer.write(req.encode())
         await writer.drain()
 
-        # Read HTTP response headers line-by-line so the reader stays
-        # positioned right at the start of WebSocket frames.
         response_lines: list[str] = []
         try:
             while True:
-                line = await asyncio.wait_for(reader.readline(),
-                                              timeout=timeout)
+                line = await asyncio.wait_for(reader.readline(), timeout=timeout)
                 if line in (b'\r\n', b'\n', b''):
                     break
-                response_lines.append(
-                    line.decode('utf-8', errors='replace').strip())
+                response_lines.append(line.decode('utf-8', errors='replace').strip())
         except asyncio.TimeoutError:
             writer.close()
             raise
@@ -195,7 +159,6 @@ class RawWebSocket:
                                 location=headers.get('location'))
 
     async def send(self, data: bytes):
-        """Send a masked binary WebSocket frame."""
         if self._closed:
             raise ConnectionError("WebSocket closed")
         frame = self._build_frame(self.OP_BINARY, data, mask=True)
@@ -203,7 +166,6 @@ class RawWebSocket:
         await self.writer.drain()
 
     async def send_batch(self, parts: List[bytes]):
-        """Send multiple binary frames with a single drain (less overhead)."""
         if self._closed:
             raise ConnectionError("WebSocket closed")
         for part in parts:
@@ -212,20 +174,15 @@ class RawWebSocket:
         await self.writer.drain()
 
     async def recv(self) -> Optional[bytes]:
-        """
-        Receive the next data frame.  Handles ping/pong/close
-        internally.  Returns payload bytes, or None on clean close.
-        """
         while not self._closed:
             opcode, payload = await self._read_frame()
 
             if opcode == self.OP_CLOSE:
                 self._closed = True
                 try:
-                    reply = self._build_frame(
-                        self.OP_CLOSE,
-                        payload[:2] if payload else b'',
-                        mask=True)
+                    reply = self._build_frame(self.OP_CLOSE,
+                                              payload[:2] if payload else b'',
+                                              mask=True)
                     self.writer.write(reply)
                     await self.writer.drain()
                 except Exception:
@@ -234,8 +191,7 @@ class RawWebSocket:
 
             if opcode == self.OP_PING:
                 try:
-                    pong = self._build_frame(self.OP_PONG, payload,
-                                             mask=True)
+                    pong = self._build_frame(self.OP_PONG, payload, mask=True)
                     self.writer.write(pong)
                     await self.writer.drain()
                 except Exception:
@@ -248,19 +204,16 @@ class RawWebSocket:
             if opcode in (self.OP_TEXT, self.OP_BINARY):
                 return payload
 
-            # Unknown opcode — skip
             continue
 
         return None
 
     async def close(self):
-        """Send close frame and shut down the transport."""
         if self._closed:
             return
         self._closed = True
         try:
-            self.writer.write(
-                self._build_frame(self.OP_CLOSE, b'', mask=True))
+            self.writer.write(self._build_frame(self.OP_CLOSE, b'', mask=True))
             await self.writer.drain()
         except Exception:
             pass
@@ -271,10 +224,9 @@ class RawWebSocket:
             pass
 
     @staticmethod
-    def _build_frame(opcode: int, data: bytes,
-                     mask: bool = False) -> bytes:
+    def _build_frame(opcode: int, data: bytes, mask: bool = False) -> bytes:
         header = bytearray()
-        header.append(0x80 | opcode)  # FIN=1 + opcode
+        header.append(0x80 | opcode)
         length = len(data)
         mask_bit = 0x80 if mask else 0x00
 
@@ -300,11 +252,9 @@ class RawWebSocket:
         length = hdr[1] & 0x7F
 
         if length == 126:
-            length = struct.unpack('>H',
-                                   await self.reader.readexactly(2))[0]
+            length = struct.unpack('>H', await self.reader.readexactly(2))[0]
         elif length == 127:
-            length = struct.unpack('>Q',
-                                   await self.reader.readexactly(8))[0]
+            length = struct.unpack('>Q', await self.reader.readexactly(8))[0]
 
         if is_masked:
             mask_key = await self.reader.readexactly(4)
@@ -337,10 +287,6 @@ def _is_http_transport(data: bytes) -> bool:
 
 
 def _dc_from_init(data: bytes) -> Tuple[Optional[int], bool]:
-    """
-    Extract DC ID from the 64-byte MTProto obfuscation init packet.
-    Returns (dc_id, is_media).
-    """
     try:
         key = bytes(data[8:40])
         iv = bytes(data[40:56])
@@ -362,12 +308,6 @@ def _dc_from_init(data: bytes) -> Tuple[Optional[int], bool]:
 
 
 def _patch_init_dc(data: bytes, dc: int) -> bytes:
-    """
-    Patch dc_id in the 64-byte MTProto init packet.
-
-    Mobile clients with useSecret=0 leave bytes 60-61 as random.
-    The WS relay needs a valid dc_id to route correctly.
-    """
     if len(data) < 64:
         return data
 
@@ -390,25 +330,14 @@ def _patch_init_dc(data: bytes, dc: int) -> bytes:
 
 
 class _MsgSplitter:
-    """
-    Splits client TCP data into individual MTProto abridged-protocol
-    messages so each can be sent as a separate WebSocket frame.
-
-    The Telegram WS relay processes one MTProto message per WS frame.
-    Mobile clients batches multiple messages in a single TCP write (e.g.
-    msgs_ack + req_DH_params).  If sent as one WS frame, the relay
-    only processes the first message — DH handshake never completes.
-    """
-
     def __init__(self, init_data: bytes):
         key_raw = bytes(init_data[8:40])
         iv = bytes(init_data[40:56])
         cipher = Cipher(algorithms.AES(key_raw), modes.CTR(iv))
         self._dec = cipher.encryptor()
-        self._dec.update(b'\x00' * 64)  # skip init packet
+        self._dec.update(b'\x00' * 64)
 
     def split(self, chunk: bytes) -> List[bytes]:
-        """Decrypt to find message boundaries, return split ciphertext."""
         plain = self._dec.update(chunk)
         boundaries = []
         pos = 0
@@ -441,12 +370,6 @@ class _MsgSplitter:
 
 
 def _ws_domains(dc: int, is_media) -> List[str]:
-    """
-    Return domain names to try for WebSocket connection to a DC.
-
-    DC 1-5:  kws{N}[-1].web.telegram.org
-    DC >5:   kws{N}[-1].telegram.org
-    """
     base = 'telegram.org' if dc > 5 else 'web.telegram.org'
     if is_media is None or is_media:
         return [f'kws{dc}-1.{base}', f'kws{dc}.{base}']
@@ -480,7 +403,6 @@ _stats = Stats()
 async def _bridge_ws(reader, writer, ws: RawWebSocket, label,
                      dc=None, dst=None, port=None, is_media=False,
                      splitter: _MsgSplitter = None):
-    """Bidirectional TCP <-> WebSocket forwarding."""
     dc_tag = f"DC{dc}{'m' if is_media else ''}" if dc else "DC?"
     dst_tag = f"{dst}:{port}" if dst else "?"
 
@@ -524,7 +446,6 @@ async def _bridge_ws(reader, writer, ws: RawWebSocket, label,
                 down_bytes += len(data)
                 down_packets += 1
                 writer.write(data)
-                # drain only when kernel buffer is filling up
                 buf = writer.transport.get_write_buffer_size()
                 if buf > 262144:
                     await writer.drain()
@@ -546,12 +467,11 @@ async def _bridge_ws(reader, writer, ws: RawWebSocket, label,
             except BaseException:
                 pass
         elapsed = asyncio.get_event_loop().time() - start_time
-        log.info("[%s] %s (%s) WS session closed: "
-                 "^%s (%d pkts) v%s (%d pkts) in %.1fs",
-                 label, dc_tag, dst_tag,
-                 _human_bytes(up_bytes), up_packets,
-                 _human_bytes(down_bytes), down_packets,
-                 elapsed)
+        log.debug("[%s] %s (%s) closed: ^%s v%s in %.1fs",
+                  label, dc_tag, dst_tag,
+                  _human_bytes(up_bytes),
+                  _human_bytes(down_bytes),
+                  elapsed)
         try:
             await ws.close()
         except BaseException:
@@ -564,9 +484,7 @@ async def _bridge_ws(reader, writer, ws: RawWebSocket, label,
 
 
 async def _bridge_tcp(reader, writer, remote_reader, remote_writer,
-                      label, dc=None, dst=None, port=None,
-                      is_media=False):
-    """Bidirectional TCP <-> TCP forwarding (for fallback)."""
+                      label, dc=None, dst=None, port=None, is_media=False):
     async def forward(src, dst_w, tag):
         try:
             while True:
@@ -607,7 +525,6 @@ async def _bridge_tcp(reader, writer, remote_reader, remote_writer,
 
 
 async def _pipe(r, w):
-    """Plain TCP relay for non-Telegram traffic."""
     try:
         while True:
             data = await r.read(65536)
@@ -633,16 +550,11 @@ def _socks5_reply(status):
 
 async def _tcp_fallback(reader, writer, dst, port, init, label,
                         dc=None, is_media=False):
-    """
-    Fall back to direct TCP to the original DC IP.
-    Throttled by ISP, but functional.  Returns True on success.
-    """
     try:
         rr, rw = await asyncio.wait_for(
             asyncio.open_connection(dst, port), timeout=10)
     except Exception as exc:
-        log.warning("[%s] TCP fallback connect to %s:%d failed: %s",
-                    label, dst, port, exc)
+        log.warning("[%s] TCP fallback to %s:%d failed: %s", label, dst, port, exc)
         return False
 
     _stats.connections_tcp_fallback += 1
@@ -659,7 +571,6 @@ async def _handle_client(reader, writer):
     label = f"{peer[0]}:{peer[1]}" if peer else "?"
 
     try:
-        # -- SOCKS5 greeting --
         hdr = await asyncio.wait_for(reader.readexactly(2), timeout=10)
         if hdr[0] != 5:
             log.debug("[%s] not SOCKS5 (ver=%d)", label, hdr[0])
@@ -667,10 +578,9 @@ async def _handle_client(reader, writer):
             return
         nmethods = hdr[1]
         await reader.readexactly(nmethods)
-        writer.write(b'\x05\x00')  # no-auth
+        writer.write(b'\x05\x00')
         await writer.drain()
 
-        # -- SOCKS5 CONNECT request --
         req = await asyncio.wait_for(reader.readexactly(4), timeout=10)
         _ver, cmd, _rsv, atyp = req
         if cmd != 1:
@@ -679,13 +589,13 @@ async def _handle_client(reader, writer):
             writer.close()
             return
 
-        if atyp == 1:  # IPv4
+        if atyp == 1:
             raw = await reader.readexactly(4)
             dst = _socket.inet_ntoa(raw)
-        elif atyp == 3:  # domain
+        elif atyp == 3:
             dlen = (await reader.readexactly(1))[0]
             dst = (await reader.readexactly(dlen)).decode()
-        elif atyp == 4:  # IPv6
+        elif atyp == 4:
             raw = await reader.readexactly(16)
             dst = _socket.inet_ntop(_socket.AF_INET6, raw)
         else:
@@ -696,7 +606,6 @@ async def _handle_client(reader, writer):
 
         port = struct.unpack('!H', await reader.readexactly(2))[0]
 
-        # -- Non-Telegram IP -> direct passthrough --
         if not _is_telegram_ip(dst):
             _stats.connections_passthrough += 1
             log.debug("[%s] passthrough -> %s:%d", label, dst, port)
@@ -704,7 +613,7 @@ async def _handle_client(reader, writer):
                 rr, rw = await asyncio.wait_for(
                     asyncio.open_connection(dst, port), timeout=10)
             except Exception as exc:
-                log.warning("[%s] passthrough failed to %s: %s: %s", label, dst, type(exc).__name__, str(exc) or "(no message)")
+                log.warning("[%s] passthrough failed to %s: %s", label, dst, exc)
                 writer.write(_socks5_reply(0x05))
                 await writer.drain()
                 writer.close()
@@ -715,8 +624,7 @@ async def _handle_client(reader, writer):
 
             tasks = [asyncio.create_task(_pipe(reader, rw)),
                      asyncio.create_task(_pipe(rr, writer))]
-            await asyncio.wait(tasks,
-                               return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in tasks:
                 t.cancel()
             for t in tasks:
@@ -726,30 +634,24 @@ async def _handle_client(reader, writer):
                     pass
             return
 
-        # -- Telegram DC: accept SOCKS, read init --
         writer.write(_socks5_reply(0x00))
         await writer.drain()
 
         try:
-            init = await asyncio.wait_for(
-                reader.readexactly(64), timeout=15)
+            init = await asyncio.wait_for(reader.readexactly(64), timeout=15)
         except asyncio.IncompleteReadError:
             log.debug("[%s] client disconnected before init", label)
             return
 
-        # HTTP transport -> reject
         if _is_http_transport(init):
             _stats.connections_http_rejected += 1
-            log.debug("[%s] HTTP transport to %s:%d (rejected)",
-                      label, dst, port)
+            log.debug("[%s] HTTP transport rejected", label)
             writer.close()
             return
 
-        # -- Extract DC ID --
         dc, is_media = _dc_from_init(init)
         init_patched = False
-        
-        # Android (may be ios too) with useSecret=0 has random dc_id bytes — patch it
+
         if dc is None and dst in _IP_TO_DC:
             dc, is_media = _IP_TO_DC.get(dst)
             if dc in _dc_opt:
@@ -757,41 +659,31 @@ async def _handle_client(reader, writer):
                 init_patched = True
 
         if dc is None or dc not in _dc_opt:
-            log.warning("[%s] unknown DC%s for %s:%d -> TCP passthrough",
-                        label, dc, dst, port)
+            log.warning("[%s] unknown DC%s for %s:%d -> TCP", label, dc, dst, port)
             await _tcp_fallback(reader, writer, dst, port, init, label)
             return
 
         dc_key = (dc, is_media if is_media is not None else True)
         now = time.monotonic()
-        media_tag = (" media" if is_media
-                     else (" media?" if is_media is None else ""))
+        media_tag = (" media" if is_media else (" media?" if is_media is None else ""))
 
-        # -- WS blacklist check --
         if dc_key in _ws_blacklist:
-            log.debug("[%s] DC%d%s WS blacklisted -> TCP %s:%d",
-                      label, dc, media_tag, dst, port)
+            log.debug("[%s] DC%d%s WS blacklisted -> TCP", label, dc, media_tag)
             ok = await _tcp_fallback(reader, writer, dst, port, init,
                                      label, dc=dc, is_media=is_media)
             if ok:
-                log.info("[%s] DC%d%s TCP fallback closed",
-                         label, dc, media_tag)
+                log.debug("[%s] DC%d%s TCP fallback closed", label, dc, media_tag)
             return
 
-        # -- Cooldown check --
         fail_until = _dc_fail_until.get(dc_key, 0)
         if now < fail_until:
-            remaining = fail_until - now
-            log.debug("[%s] DC%d%s WS cooldown (%.0fs) -> TCP",
-                      label, dc, media_tag, remaining)
+            log.debug("[%s] DC%d%s WS cooldown -> TCP", label, dc, media_tag)
             ok = await _tcp_fallback(reader, writer, dst, port, init,
                                      label, dc=dc, is_media=is_media)
             if ok:
-                log.info("[%s] DC%d%s TCP fallback closed",
-                         label, dc, media_tag)
+                log.debug("[%s] DC%d%s TCP fallback closed", label, dc, media_tag)
             return
 
-        # -- Try WebSocket via direct connection --
         domains = _ws_domains(dc, is_media)
         target = _dc_opt[dc]
         ws = None
@@ -800,21 +692,18 @@ async def _handle_client(reader, writer):
 
         for domain in domains:
             url = f'wss://{domain}/apiws'
-            log.info("[%s] DC%d%s (%s:%d) -> %s via %s",
-                     label, dc, media_tag, dst, port, url, target)
+            log.info("[%s] DC%d%s -> %s", label, dc, media_tag, url)
             try:
-                ws = await RawWebSocket.connect(target, domain,
-                                                timeout=10)
+                ws = await RawWebSocket.connect(target, domain, timeout=10)
                 all_redirects = False
                 break
             except WsHandshakeError as exc:
                 _stats.ws_errors += 1
                 if exc.is_redirect:
                     ws_failed_redirect = True
-                    log.warning("[%s] DC%d%s got %d from %s -> %s",
-                                label, dc, media_tag,
-                                exc.status_code, domain,
-                                exc.location or '?')
+                    log.warning("[%s] DC%d%s %d from %s -> %s",
+                                label, dc, media_tag, exc.status_code,
+                                domain, exc.location or '?')
                     continue
                 else:
                     all_redirects = False
@@ -823,39 +712,24 @@ async def _handle_client(reader, writer):
             except Exception as exc:
                 _stats.ws_errors += 1
                 all_redirects = False
-                err_str = str(exc)
-                if ('CERTIFICATE_VERIFY_FAILED' in err_str or
-                        'Hostname mismatch' in err_str):
-                    log.warning("[%s] DC%d%s SSL error: %s",
-                                label, dc, media_tag, exc)
-                else:
-                    log.warning("[%s] DC%d%s WS connect failed: %s",
-                                label, dc, media_tag, exc)
+                log.warning("[%s] DC%d%s WS failed: %s", label, dc, media_tag, exc)
 
-        # -- WS failed -> fallback --
         if ws is None:
             if ws_failed_redirect and all_redirects:
                 _ws_blacklist.add(dc_key)
-                log.warning(
-                    "[%s] DC%d%s blacklisted for WS (all 302)",
-                    label, dc, media_tag)
-            elif ws_failed_redirect:
-                _dc_fail_until[dc_key] = now + _DC_FAIL_COOLDOWN
+                log.warning("[%s] DC%d%s blacklisted (all 302)", label, dc, media_tag)
             else:
                 _dc_fail_until[dc_key] = now + _DC_FAIL_COOLDOWN
-                log.info("[%s] DC%d%s WS cooldown for %ds",
+                log.info("[%s] DC%d%s WS cooldown %ds",
                          label, dc, media_tag, int(_DC_FAIL_COOLDOWN))
 
-            log.info("[%s] DC%d%s -> TCP fallback to %s:%d",
-                     label, dc, media_tag, dst, port)
+            log.info("[%s] DC%d%s -> TCP fallback", label, dc, media_tag)
             ok = await _tcp_fallback(reader, writer, dst, port, init,
                                      label, dc=dc, is_media=is_media)
             if ok:
-                log.info("[%s] DC%d%s TCP fallback closed",
-                         label, dc, media_tag)
+                log.debug("[%s] DC%d%s TCP fallback closed", label, dc, media_tag)
             return
 
-        # -- WS success --
         _dc_fail_until.pop(dc_key, None)
         _stats.connections_ws += 1
 
@@ -866,16 +740,13 @@ async def _handle_client(reader, writer):
             except Exception:
                 pass
 
-        # Send the buffered init packet
         await ws.send(init)
-
-        # Bidirectional bridge
         await _bridge_ws(reader, writer, ws, label,
                          dc=dc, dst=dst, port=port, is_media=is_media,
                          splitter=splitter)
 
     except asyncio.TimeoutError:
-        log.warning("[%s] timeout during SOCKS5 handshake", label)
+        log.warning("[%s] SOCKS5 handshake timeout", label)
     except asyncio.IncompleteReadError:
         log.debug("[%s] client disconnected", label)
     except asyncio.CancelledError:
@@ -902,21 +773,11 @@ async def _run(port: int, dc_opt: Dict[int, Optional[str]],
     _dc_opt = dc_opt
     _server_stop_event = stop_event
 
-    server = await asyncio.start_server(
-        _handle_client, host, port)
+    server = await asyncio.start_server(_handle_client, host, port)
     _server_instance = server
 
-    log.info("=" * 60)
-    log.info("  Telegram WS Bridge Proxy")
-    log.info("  Listening on   %s:%d", host, port)
-    log.info("  Target DC IPs:")
-    for dc in dc_opt.keys():
-        ip = dc_opt.get(dc)
-        log.info("    DC%d: %s", dc, ip)
-    log.info("=" * 60)
-    log.info("  Configure Telegram Desktop:")
-    log.info("    SOCKS5 proxy -> %s:%d  (no user/pass)", host, port)
-    log.info("=" * 60)
+    dc_str = ', '.join(f'DC{k}:{v}' for k, v in sorted(dc_opt.items()))
+    log.info("Proxy ready on %s:%d  [%s]", host, port, dc_str)
 
     async def log_stats():
         while True:
@@ -951,7 +812,6 @@ async def _run(port: int, dc_opt: Dict[int, Optional[str]],
 
 
 def parse_dc_ip_list(dc_ip_list: List[str]) -> Dict[int, str]:
-    """Parse list of 'DC:IP' strings into {dc: ip} dict."""
     dc_opt: Dict[int, str] = {}
     for entry in dc_ip_list:
         if ':' not in entry:
@@ -969,23 +829,16 @@ def parse_dc_ip_list(dc_ip_list: List[str]) -> Dict[int, str]:
 def run_proxy(port: int, dc_opt: Dict[int, str],
               stop_event: Optional[asyncio.Event] = None,
               host: str = '127.0.0.1'):
-    """Run the proxy (blocking). Can be called from threads."""
     asyncio.run(_run(port, dc_opt, stop_event, host))
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description='Telegram Desktop WebSocket Bridge Proxy')
-    ap.add_argument('--port', type=int, default=DEFAULT_PORT,
-                    help=f'Listen port (default {DEFAULT_PORT})')
-    ap.add_argument('--host', type=str, default='127.0.0.1',
-                    help='Listen host (default 127.0.0.1)')
+    ap = argparse.ArgumentParser(description='Telegram WS Bridge Proxy')
+    ap.add_argument('--port', type=int, default=DEFAULT_PORT)
+    ap.add_argument('--host', type=str, default='127.0.0.1')
     ap.add_argument('--dc-ip', metavar='DC:IP', action='append',
-                    default=['2:149.154.167.220', '4:149.154.167.220'],
-                    help='Target IP for a DC, e.g. --dc-ip 1:149.154.175.205'
-                         ' --dc-ip 2:149.154.167.220')
-    ap.add_argument('-v', '--verbose', action='store_true',
-                    help='Debug logging')
+                    default=['2:149.154.167.220', '4:149.154.167.220'])
+    ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
 
     try:
@@ -1003,7 +856,7 @@ def main():
     try:
         asyncio.run(_run(args.port, dc_opt, host=args.host))
     except KeyboardInterrupt:
-        log.info("Shutting down. Final stats: %s", _stats.summary())
+        log.info("Stopped. Final stats: %s", _stats.summary())
 
 
 if __name__ == '__main__':
