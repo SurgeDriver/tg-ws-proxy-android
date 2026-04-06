@@ -16,13 +16,13 @@ Telegram Android → SOCKS5 (127.0.0.1:1080) → TG WS Proxy (Termux) → WSS (k
 4. Устанавливает WebSocket (TLS) соединение к соответствующему DC через домены `kws{N}.web.telegram.org`.
 5. Если WS недоступен — автоматически переключается на прямое TCP-соединение.
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### Android (Termux)
 Установите [Termux](https://f-droid.org/packages/com.termux/) (рекомендуется версия с F-Droid) и выполните одну команду:
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/Superdetectiv4ik/tg-ws-proxy-android/main/install.sh)
+bash <(curl -s https://raw.githubusercontent.com/SurgeDriver/tg-ws-proxy-android/main/install.sh)
 ```
 
 Скрипт автоматически настроит окружение, установит зависимости и запустит прокси.
@@ -35,7 +35,7 @@ bash <(curl -s https://raw.githubusercontent.com/Superdetectiv4ik/tg-ws-proxy-an
 
 ```bash
 pkg update && pkg install python git rust clang python-cryptography python-psutil python-pillow -y
-git clone https://github.com/ВАШ_ЛОГИН/tg-ws-proxy-android.git
+git clone https://github.com/SurgeDriver/tg-ws-proxy-android.git
 cd tg-ws-proxy-android
 pip install -r requirements.txt
 ```
@@ -44,7 +44,7 @@ pip install -r requirements.txt
 
 ```bash
 termux-wake-lock
-python main.py
+python android.py
 ```
 
 **Аргументы:**
@@ -52,21 +52,32 @@ python main.py
 | Аргумент | По умолчанию | Описание |
 |---|---|---|
 | `--port` | `1080` | Порт SOCKS5-прокси |
-| `--dc-ip` | `5:91.108.56.190` | Целевой IP для DC (настраивается в config.json) |
+| `--dc-ip` | `2:149.154.167.220` | Целевой IP для DC (настраивается в config.json) |
 | `-v`, `--verbose` | выкл. | Подробное логирование (DEBUG) |
 
 **Примеры:**
 
 ```bash
 # Стандартный запуск
-python main.py
+python android.py
 
 # Другой порт
-python main.py --port 9050
+python android.py --port 9050
 
 # С подробным логированием
-python main.py -v
+python android.py -v
 ```
+
+### Удобный алиас для повторного запуска
+
+Чтобы не вводить полную команду каждый раз, добавьте алиас в `~/.bashrc`:
+
+```bash
+echo 'alias tgproxy="cd ~/tg-ws-proxy-android && termux-wake-lock && python android.py"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Теперь для запуска достаточно команды `tgproxy`.
 
 ## Настройка Telegram Android
 
@@ -89,7 +100,8 @@ python main.py -v
   "port": 1080,
   "host": "127.0.0.1",
   "dc_ip": [
-    "5:91.108.56.190"
+    "2:149.154.167.220",
+    "4:149.154.167.220"
   ],
   "verbose": false
 }
@@ -102,10 +114,14 @@ python main.py -v
 *   **DC 2 (Amsterdam):** `149.154.167.51`
 *   **DC 5 (Singapore):** `91.108.56.190`
 
+Для пользователей из России рекомендуется DC 2 (Amsterdam).
+
 ## Решение проблем
 
-*   **Высокий пинг (>1000ms):** Проверьте параметр `dc_ip` в конфиге, вы можете использовать далекий от вас сервер.
-*   **Прокси отваливается:** Android усыпляет фоновые процессы. Обязательно выполняйте команду `termux-wake-lock` перед запуском.
+*   **`python: can't open file 'main.py'`:** Точка входа — `android.py`, а не `main.py`. Используйте `python android.py`.
+*   **`[Errno 98] address already in use`:** Порт 1080 уже занят предыдущим экземпляром прокси. Дождитесь нескольких секунд — прокси запустится автоматически после освобождения порта. Либо завершите старый процесс явно: `pkill -f android.py && sleep 1 && python android.py`.
+*   **Высокий пинг (>1000ms):** Проверьте параметр `dc_ip` в конфиге — возможно, выбран далёкий сервер.
+*   **Прокси отваливается:** Android усыпляет фоновые процессы. Обязательно выполняйте `termux-wake-lock` перед запуском.
 *   **Ошибки при установке:** Убедитесь, что используете Termux из F-Droid, а не Google Play.
 
 ## Лицензия
