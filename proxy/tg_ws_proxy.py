@@ -44,6 +44,7 @@ _IP_TO_DC: Dict[str, Tuple[int, bool]] = {
     '149.154.166.121': (4, True), '149.154.167.118': (4, True),
     '149.154.165.111': (4, True),
     '91.108.56.100': (5, False), '91.108.56.101': (5, False),
+    '91.108.56.110': (5, True),
     '91.108.56.116': (5, False), '91.108.56.126': (5, False),
     '149.154.171.5':  (5, False),
     '91.108.56.102': (5, True), '91.108.56.128': (5, True),
@@ -335,7 +336,7 @@ def _dc_from_init(data: bytes) -> Tuple[Optional[int], bool]:
                   proto, dc_raw, plain.hex())
         if proto in (0xEFEFEFEF, 0xEEEEEEEE, 0xDDDDDDDD):
             dc = abs(dc_raw)
-            if 1 <= dc <= 1000:
+            if 1 <= dc <= 10:
                 return dc, (dc_raw < 0)
     except Exception as exc:
         log.debug("DC extraction failed: %s", exc)
@@ -430,6 +431,12 @@ class Stats:
                 f"err={self.ws_errors} "
                 f"up={_human_bytes(self.bytes_up)} "
                 f"down={_human_bytes(self.bytes_down)}")
+
+    def snapshot(self) -> tuple:
+        return (self.connections_total, self.connections_ws,
+                self.connections_tcp_fallback, self.connections_http_rejected,
+                self.connections_passthrough, self.ws_errors,
+                self.bytes_up, self.bytes_down)
 
 
 _stats = Stats()
@@ -631,8 +638,16 @@ async def _handle_client(reader, writer):
             dlen = (await reader.readexactly(1))[0]
             dst = (await reader.readexactly(dlen)).decode()
         elif atyp == 4:
-            raw = await reader.readexactly(16)
-            dst = _socket.inet_ntop(_socket.AF_INET6, raw)
+            # IPv6 — no IPv6 connectivity on Android/Termux in most cases.
+            # Consume the address bytes and immediately return host unreachable
+            # instead of attempting a connection that will always fail.
+            await reader.readexactly(16)  # consume IPv6 address
+            await reader.readexactly(2)   # consume port
+            log.debug("[%s] IPv6 destination, returning host-unreachable", label)
+            writer.write(_socks5_reply(0x04))
+            await writer.drain()
+            writer.close()
+            return
         else:
             writer.write(_socks5_reply(0x08))
             await writer.drain()
@@ -815,9 +830,15 @@ async def _run(port: int, dc_opt: Dict[int, Optional[str]],
     print(f'{_GREEN}Proxy ready on {host}:{port}  [{dc_str}]{_RESET}',
           flush=True)
 
+    _last_snapshot: list = [None]
+
     async def log_stats():
         while True:
             await asyncio.sleep(60)
+            snap = _stats.snapshot()
+            if snap == _last_snapshot[0]:
+                continue
+            _last_snapshot[0] = snap
             bl = ', '.join(
                 f'DC{d}{"m" if m else ""}'
                 for d, m in sorted(_ws_blacklist)) or 'none'
@@ -873,7 +894,12 @@ def main():
     ap.add_argument('--port', type=int, default=DEFAULT_PORT)
     ap.add_argument('--host', type=str, default='127.0.0.1')
     ap.add_argument('--dc-ip', metavar='DC:IP', action='append',
-                    default=['2:149.154.167.220', '4:149.154.167.220'])
+                    default=[
+                        '2:149.154.167.220',
+                        '3:149.154.175.100',
+                        '4:149.154.167.220',
+                        '5:91.108.56.190',
+                    ])
     ap.add_argument('-v', '--verbose', action='store_true')
     args = ap.parse_args()
 

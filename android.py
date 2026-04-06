@@ -17,7 +17,12 @@ CONFIG_FILE = APP_DIR / "config.json"
 DEFAULT_CONFIG = {
     "port": 1080,
     "host": "127.0.0.1",
-    "dc_ip": ["2:149.154.167.220", "4:149.154.167.220"],
+    "dc_ip": [
+        "2:149.154.167.220",
+        "3:149.154.175.100",
+        "4:149.154.167.220",
+        "5:91.108.56.190",
+    ],
     "verbose": False,
 }
 
@@ -73,15 +78,6 @@ def load_config() -> dict:
         except Exception as exc:
             log.warning("Failed to load config: %s - using defaults", exc)
     return dict(DEFAULT_CONFIG)
-
-
-def setup_logging(verbose: bool = False):
-    root = logging.getLogger()
-    root.setLevel(logging.DEBUG if verbose else logging.INFO)
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.DEBUG if verbose else logging.INFO)
-    ch.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"))
-    root.addHandler(ch)
 
 
 def _run_proxy_thread(port: int, dc_opt: Dict[int, str], verbose: bool, host: str = "127.0.0.1"):
@@ -154,7 +150,11 @@ def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
 def main():
     global _config
     _config = load_config()
-    setup_logging(_config.get("verbose", False))
+
+    # Use unified color logging from tg_ws_proxy
+    tg_ws_proxy.setup_color_logging(
+        logging.DEBUG if _config.get("verbose", False) else logging.INFO
+    )
 
     port = _config.get("port", DEFAULT_CONFIG["port"])
     host = _config.get("host", DEFAULT_CONFIG["host"])

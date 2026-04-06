@@ -9,7 +9,7 @@ pkg install python git rust clang python-cryptography python-psutil python-pillo
 rm -rf tg-ws-proxy-android
 
 echo "Cloning repository..."
-git clone https://github.com/Superdetectiv4ik/tg-ws-proxy-android.git
+git clone https://github.com/SurgeDriver/tg-ws-proxy-android.git
 cd tg-ws-proxy-android
 
 echo "Creating config file..."
@@ -19,7 +19,12 @@ cat << 'EOF' > ~/TgWsProxy/config.json
 {
   "port": 1080,
   "host": "127.0.0.1",
-  "dc_ip": ["5:91.108.56.190", "2:149.154.167.220", "4:149.154.167.220"],
+  "dc_ip": [
+    "2:149.154.167.220",
+    "3:149.154.175.100",
+    "4:149.154.167.220",
+    "5:91.108.56.190"
+  ],
   "verbose": false
 }
 EOF
