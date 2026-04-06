@@ -60,6 +60,41 @@ _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
 
+# ANSI color codes
+_RESET  = '\033[0m'
+_GREEN  = '\033[32m'
+_YELLOW = '\033[33m'
+_RED    = '\033[31m'
+_CYAN   = '\033[36m'
+_DIM    = '\033[2m'
+
+_LEVEL_COLORS = {
+    'DEBUG':    _DIM,
+    'INFO':     '',
+    'WARNING':  _YELLOW,
+    'ERROR':    _RED,
+    'CRITICAL': _RED,
+}
+
+
+class _ColorFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        msg = super().format(record)
+        color = _LEVEL_COLORS.get(record.levelname, '')
+        return f'{color}{msg}{_RESET}' if color else msg
+
+
+def setup_color_logging(level: int = logging.INFO) -> None:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+    handler.setFormatter(_ColorFormatter(
+        fmt='%(asctime)s  %(levelname)-5s  %(message)s',
+        datefmt='%H:%M:%S',
+    ))
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.addHandler(handler)
+
 
 class WsHandshakeError(Exception):
     def __init__(self, status_code: int, status_line: str,
@@ -777,7 +812,8 @@ async def _run(port: int, dc_opt: Dict[int, Optional[str]],
     _server_instance = server
 
     dc_str = ', '.join(f'DC{k}:{v}' for k, v in sorted(dc_opt.items()))
-    log.info("Proxy ready on %s:%d  [%s]", host, port, dc_str)
+    print(f'{_GREEN}Proxy ready on {host}:{port}  [{dc_str}]{_RESET}',
+          flush=True)
 
     async def log_stats():
         while True:
@@ -847,11 +883,7 @@ def main():
         log.error(str(e))
         sys.exit(1)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format='%(asctime)s  %(levelname)-5s  %(message)s',
-        datefmt='%H:%M:%S',
-    )
+    setup_color_logging(logging.DEBUG if args.verbose else logging.INFO)
 
     try:
         asyncio.run(_run(args.port, dc_opt, host=args.host))
