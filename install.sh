@@ -34,6 +34,7 @@ cat > ~/TgWsProxy/config.json << EOF
   "no_auth": false
 }
 EOF
+chmod 600 ~/TgWsProxy/config.json
 
 echo ""
 echo "====================================="
