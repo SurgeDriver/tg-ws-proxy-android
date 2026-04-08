@@ -61,6 +61,10 @@ _ssl_ctx = ssl.create_default_context()
 _ssl_ctx.check_hostname = False
 _ssl_ctx.verify_mode = ssl.CERT_NONE
 
+# Runtime auth credentials — set by _run() before server starts
+_auth_username: Optional[bytes] = None
+_auth_password: Optional[bytes] = None
+
 # ANSI color codes
 _RESET  = '\033[0m'
 _GREEN  = '\033[32m'
@@ -442,6 +446,31 @@ class Stats:
 _stats = Stats()
 
 
+async def _socks5_auth_subnegotiation(reader: asyncio.StreamReader,
+                                       writer: asyncio.StreamWriter) -> bool:
+    """RFC 1929 username/password sub-negotiation. Returns True if auth passed."""
+    # VER field must be 0x01
+    ver = await asyncio.wait_for(reader.readexactly(1), timeout=10)
+    if ver[0] != 0x01:
+        writer.write(b'\x01\x01')  # failure
+        await writer.drain()
+        return False
+
+    ulen = (await asyncio.wait_for(reader.readexactly(1), timeout=10))[0]
+    uname = await asyncio.wait_for(reader.readexactly(ulen), timeout=10)
+    plen = (await asyncio.wait_for(reader.readexactly(1), timeout=10))[0]
+    passwd = await asyncio.wait_for(reader.readexactly(plen), timeout=10)
+
+    if uname == _auth_username and passwd == _auth_password:
+        writer.write(b'\x01\x00')  # success
+        await writer.drain()
+        return True
+
+    writer.write(b'\x01\x01')  # failure
+    await writer.drain()
+    return False
+
+
 async def _bridge_ws(reader, writer, ws: RawWebSocket, label,
                      dc=None, dst=None, port=None, is_media=False,
                      splitter: _MsgSplitter = None):
@@ -619,9 +648,27 @@ async def _handle_client(reader, writer):
             writer.close()
             return
         nmethods = hdr[1]
-        await reader.readexactly(nmethods)
-        writer.write(b'\x05\x00')
-        await writer.drain()
+        methods = await reader.readexactly(nmethods)
+
+        # Require username/password auth (method 0x02)
+        if _auth_username is not None and 0x02 in methods:
+            writer.write(b'\x05\x02')  # choose method 2
+            await writer.drain()
+            if not await _socks5_auth_subnegotiation(reader, writer):
+                log.warning("[%s] SOCKS5 auth failed", label)
+                writer.close()
+                return
+        elif _auth_username is not None:
+            # Client does not support auth — reject
+            writer.write(b'\x05\xFF')
+            await writer.drain()
+            log.warning("[%s] SOCKS5 client offers no auth methods, rejecting", label)
+            writer.close()
+            return
+        else:
+            # No auth configured — accept without credentials (legacy/dev mode)
+            writer.write(b'\x05\x00')
+            await writer.drain()
 
         req = await asyncio.wait_for(reader.readexactly(4), timeout=10)
         _ver, cmd, _rsv, atyp = req
@@ -638,11 +685,9 @@ async def _handle_client(reader, writer):
             dlen = (await reader.readexactly(1))[0]
             dst = (await reader.readexactly(dlen)).decode()
         elif atyp == 4:
-            # IPv6 — no IPv6 connectivity on Android/Termux in most cases.
-            # Consume the address bytes and immediately return host unreachable
-            # instead of attempting a connection that will always fail.
-            await reader.readexactly(16)  # consume IPv6 address
-            await reader.readexactly(2)   # consume port
+            # IPv6 — consume and reject
+            await reader.readexactly(16)
+            await reader.readexactly(2)
             log.debug("[%s] IPv6 destination, returning host-unreachable", label)
             writer.write(_socks5_reply(0x04))
             await writer.drain()
@@ -818,17 +863,35 @@ _server_stop_event = None
 
 async def _run(port: int, dc_opt: Dict[int, Optional[str]],
                stop_event: Optional[asyncio.Event] = None,
-               host: str = '127.0.0.1'):
+               host: str = '127.0.0.1',
+               username: Optional[bytes] = None,
+               password: Optional[bytes] = None):
     global _dc_opt, _server_instance, _server_stop_event
+    global _auth_username, _auth_password
     _dc_opt = dc_opt
     _server_stop_event = stop_event
+    _auth_username = username
+    _auth_password = password
 
     server = await asyncio.start_server(_handle_client, host, port)
     _server_instance = server
 
+    # Resolve the actual port if 0 was requested (OS picks a free port)
+    actual_port = server.sockets[0].getsockname()[1] if server.sockets else port
+
     dc_str = ', '.join(f'DC{k}:{v}' for k, v in sorted(dc_opt.items()))
-    print(f'{_GREEN}Proxy ready on {host}:{port}  [{dc_str}]{_RESET}',
+    print(f'{_GREEN}Proxy ready on {host}:{actual_port}  [{dc_str}]{_RESET}',
           flush=True)
+
+    if username and password:
+        u = username.decode()
+        p = password.decode()
+        print(f'{_CYAN}SOCKS5 credentials  user={u}  pass={p}{_RESET}', flush=True)
+        print(
+            f'{_CYAN}Telegram proxy string: '
+            f'socks5://{u}:{p}@127.0.0.1:{actual_port}{_RESET}',
+            flush=True,
+        )
 
     _last_snapshot: list = [None]
 
@@ -885,8 +948,10 @@ def parse_dc_ip_list(dc_ip_list: List[str]) -> Dict[int, str]:
 
 def run_proxy(port: int, dc_opt: Dict[int, str],
               stop_event: Optional[asyncio.Event] = None,
-              host: str = '127.0.0.1'):
-    asyncio.run(_run(port, dc_opt, stop_event, host))
+              host: str = '127.0.0.1',
+              username: Optional[bytes] = None,
+              password: Optional[bytes] = None):
+    asyncio.run(_run(port, dc_opt, stop_event, host, username, password))
 
 
 def main():
@@ -901,6 +966,12 @@ def main():
                         '5:91.108.56.190',
                     ])
     ap.add_argument('-v', '--verbose', action='store_true')
+    ap.add_argument('--username', type=str, default=None,
+                    help='SOCKS5 auth username (default: random)')
+    ap.add_argument('--password', type=str, default=None,
+                    help='SOCKS5 auth password (default: random)')
+    ap.add_argument('--no-auth', action='store_true',
+                    help='Disable SOCKS5 authentication (not recommended)')
     args = ap.parse_args()
 
     try:
@@ -911,8 +982,15 @@ def main():
 
     setup_color_logging(logging.DEBUG if args.verbose else logging.INFO)
 
+    if args.no_auth:
+        username = password = None
+    else:
+        username = args.username.encode() if args.username else os.urandom(8).hex().encode()
+        password = args.password.encode() if args.password else os.urandom(8).hex().encode()
+
     try:
-        asyncio.run(_run(args.port, dc_opt, host=args.host))
+        asyncio.run(_run(args.port, dc_opt, host=args.host,
+                         username=username, password=password))
     except KeyboardInterrupt:
         log.info("Stopped. Final stats: %s", _stats.summary())
 

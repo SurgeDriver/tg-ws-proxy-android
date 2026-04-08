@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 import asyncio as _asyncio
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -15,7 +16,7 @@ APP_DIR = Path.home() / APP_NAME
 CONFIG_FILE = APP_DIR / "config.json"
 
 DEFAULT_CONFIG = {
-    "port": 1080,
+    "port": 0,
     "host": "127.0.0.1",
     "dc_ip": [
         "2:149.154.167.220",
@@ -24,6 +25,12 @@ DEFAULT_CONFIG = {
         "5:91.108.56.190",
     ],
     "verbose": False,
+    # Explicit credentials override random generation.
+    # Leave empty strings (or omit) to generate new random credentials each launch.
+    "username": "",
+    "password": "",
+    # Set to true to disable authentication entirely (not recommended).
+    "no_auth": False,
 }
 
 _RESTART_DELAY_BASE = 5
@@ -43,8 +50,8 @@ def _ensure_dirs():
 def _validate_config(data: dict) -> list[str]:
     errors = []
     port = data.get("port")
-    if not isinstance(port, int) or not (1 <= port <= 65535):
-        errors.append(f"'port' must be an integer 1-65535, got {port!r}")
+    if not isinstance(port, int) or not (0 <= port <= 65535):
+        errors.append(f"'port' must be an integer 0-65535, got {port!r}")
     host = data.get("host")
     if not isinstance(host, str) or not host:
         errors.append(f"'host' must be a non-empty string, got {host!r}")
@@ -80,14 +87,31 @@ def load_config() -> dict:
     return dict(DEFAULT_CONFIG)
 
 
-def _run_proxy_thread(port: int, dc_opt: Dict[int, str], verbose: bool, host: str = "127.0.0.1"):
+def _resolve_credentials(cfg: dict):
+    """Return (username_bytes, password_bytes) or (None, None) if auth disabled."""
+    if cfg.get("no_auth", False):
+        return None, None
+    u = cfg.get("username", "")
+    p = cfg.get("password", "")
+    username = u.encode() if u else os.urandom(8).hex().encode()
+    password = p.encode() if p else os.urandom(8).hex().encode()
+    return username, password
+
+
+def _run_proxy_thread(port: int, dc_opt: Dict[int, str], verbose: bool,
+                      host: str = "127.0.0.1",
+                      username: Optional[bytes] = None,
+                      password: Optional[bytes] = None):
     global _async_stop
     loop = _asyncio.new_event_loop()
     _asyncio.set_event_loop(loop)
     stop_ev = _asyncio.Event()
     _async_stop = (loop, stop_ev)
     try:
-        loop.run_until_complete(tg_ws_proxy._run(port, dc_opt, stop_event=stop_ev, host=host))
+        loop.run_until_complete(
+            tg_ws_proxy._run(port, dc_opt, stop_event=stop_ev,
+                             host=host, username=username, password=password)
+        )
     except Exception as exc:
         log.error("Proxy thread crashed: %s", exc)
     finally:
@@ -106,6 +130,7 @@ def start_proxy():
     host = cfg.get("host", DEFAULT_CONFIG["host"])
     dc_ip_list = cfg.get("dc_ip", DEFAULT_CONFIG["dc_ip"])
     verbose = cfg.get("verbose", False)
+    username, password = _resolve_credentials(cfg)
 
     try:
         dc_opt = tg_ws_proxy.parse_dc_ip_list(dc_ip_list)
@@ -115,17 +140,16 @@ def start_proxy():
 
     _proxy_thread = threading.Thread(
         target=_run_proxy_thread,
-        args=(port, dc_opt, verbose, host),
+        args=(port, dc_opt, verbose, host, username, password),
         daemon=True,
         name="proxy",
     )
     _proxy_thread.start()
 
 
-def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
-    """Restarts the proxy thread on crash with exponential backoff.
-    No hard limit on attempts — delay grows 5s -> 10s -> 20s -> ... -> 120s cap.
-    """
+def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str,
+              username: Optional[bytes], password: Optional[bytes]):
+    """Restarts the proxy thread on crash with exponential backoff."""
     global _proxy_thread
     consecutive_crashes = 0
 
@@ -142,9 +166,15 @@ def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str):
             )
             time.sleep(delay)
 
+            # Generate fresh credentials on each restart for extra security
+            u, p = username, password
+            if u is not None:
+                u = os.urandom(8).hex().encode()
+                p = os.urandom(8).hex().encode()
+
             _proxy_thread = threading.Thread(
                 target=_run_proxy_thread,
-                args=(port, dc_opt, verbose, host),
+                args=(port, dc_opt, verbose, host, u, p),
                 daemon=True,
                 name="proxy",
             )
@@ -166,6 +196,7 @@ def main():
     host = _config.get("host", DEFAULT_CONFIG["host"])
     dc_ip_list = _config.get("dc_ip", DEFAULT_CONFIG["dc_ip"])
     verbose = _config.get("verbose", False)
+    username, password = _resolve_credentials(_config)
 
     try:
         dc_opt = tg_ws_proxy.parse_dc_ip_list(dc_ip_list)
@@ -177,7 +208,7 @@ def main():
 
     watchdog_thread = threading.Thread(
         target=_watchdog,
-        args=(port, dc_opt, verbose, host),
+        args=(port, dc_opt, verbose, host, username, password),
         daemon=True,
         name="watchdog",
     )
