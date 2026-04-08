@@ -25,11 +25,8 @@ DEFAULT_CONFIG = {
         "5:91.108.56.190",
     ],
     "verbose": False,
-    # Explicit credentials override random generation.
-    # Leave empty strings (or omit) to generate new random credentials each launch.
     "username": "",
     "password": "",
-    # Set to true to disable authentication entirely (not recommended).
     "no_auth": False,
 }
 
@@ -93,6 +90,8 @@ def _resolve_credentials(cfg: dict):
         return None, None
     u = cfg.get("username", "")
     p = cfg.get("password", "")
+    # If config has explicit values (set by install.sh), use them as-is.
+    # Fall back to random only if someone wiped the config manually.
     username = u.encode() if u else os.urandom(8).hex().encode()
     password = p.encode() if p else os.urandom(8).hex().encode()
     return username, password
@@ -149,7 +148,10 @@ def start_proxy():
 
 def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str,
               username: Optional[bytes], password: Optional[bytes]):
-    """Restarts the proxy thread on crash with exponential backoff."""
+    """Restarts the proxy thread on crash with exponential backoff.
+    Credentials and port stay stable across restarts — they are fixed at
+    install time via install.sh and read from config.json.
+    """
     global _proxy_thread
     consecutive_crashes = 0
 
@@ -166,15 +168,9 @@ def _watchdog(port: int, dc_opt: Dict[int, str], verbose: bool, host: str,
             )
             time.sleep(delay)
 
-            # Generate fresh credentials on each restart for extra security
-            u, p = username, password
-            if u is not None:
-                u = os.urandom(8).hex().encode()
-                p = os.urandom(8).hex().encode()
-
             _proxy_thread = threading.Thread(
                 target=_run_proxy_thread,
-                args=(port, dc_opt, verbose, host, u, p),
+                args=(port, dc_opt, verbose, host, username, password),
                 daemon=True,
                 name="proxy",
             )
