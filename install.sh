@@ -1,1 +1,75 @@
-IyEvYmluL2Jhc2gKc2V0IC1lCgplY2hvICJJbnN0YWxsaW5nIGRlcGVuZGVuY2llcy4uLiIKcGtnIHVwZGF0ZSAteQpwa2cgaW5zdGFsbCBweXRob24gZ2l0IHJ1c3QgY2xhbmcgcHl0aG9uLWNyeXB0b2dyYXBoeSBweXRob24tcHN1dGlsIHB5dGhvbi1waWxsb3cgLXkKCnJtIC1yZiB+L3RnLXdzLXByb3h5LWFuZHJvaWQKCmVjaG8gIkNsb25pbmcgcmVwb3NpdG9yeS4uLiIKZ2l0IGNsb25lIGh0dHBzOi8vZ2l0aHViLmNvbS9TdXJnZURyaXZlci90Zy13cy1wcm94eS1hbmRyb2lkLmdpdCB+L3RnLXdzLXByb3h5LWFuZHJvaWQKCmVjaG8gIkdlbmVyYXRpbmcgY3JlZGVudGlhbHMgYW5kIHBvcnQuLi4iClVTRVJOQU1FPSQoY2F0IC9kZXYvdXJhbmRvbSB8IHRyIC1kYyAnYS16MC05JyB8IGhlYWQgLWMgMTYpClBBU1NXT1JEPSQoY2F0IC9kZXYvdXJhbmRvbSB8IHRyIC1kYyAnYS16MC05JyB8IGhlYWQgLWMgMjQpCiMgUGljayBhIHJhbmRvbSBwb3J0IGluIHRoZSBub24td2VsbC1rbm93biwgbm9uLXJlZ2lzdGVyZWQgcmFuZ2U6IDMyNzY4LTYwOTk5ClBPUlQ9JCggKCAkKG9kIC1BbiAtTjIgLXR1MiAvZGV2L3VyYW5kb20gfCB0ciAtZCAnICcpICUgMjgyMzIgKSArIDMyNzY4ICkpCgplY2hvICJDcmVhdGluZyBjb25maWcgZmlsZS4uLiIKbWtkaXIgLXAgfi9UZ1dzUHJveHkKY2F0ID4gfi9UZ1dzUHJveHkvY29uZmlnLmpzb24gPDwgRU9GCnsKICAicG9ydCI6ICRQT1JULAogICJob3N0IjogIjEyNy4wLjAuMSIsCiAgImRjX2lwIjogWwogICAgIjI6MTQ5LjE1NC4xNjcuMjIwIiwKICAgICIzOjE0OS4xNTQuMTc1LjEwMCIsCiAgICAiNDoxNDkuMTU0LjE2Ny4yMjAiLAogICAgIjU6OTEuMTA4LjU2LjE5MCIKICBJLF0sCiAgInZlcmJvc2UiOiBmYWxzZSwKICAidXNlcm5hbWUiOiAiJFVTRVJOQU1FIiwKICAicGFzc3dvcmQiOiAiJFBBU1NXT1JEIiwKICAibm9fYXV0aCI6IGZhbHNlCn0KRU9GCmNobW9kIDYwMCB+L1RnV3NQcm94eS9jb25maWcuanNvbgoKZWNobyAiIgplY2hvICI9PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PSIKZWNobyAiIFRlbGVncmFtIHByb3h5IHNldHRpbmdzIChzYXZlIHRoZXNlKSIKZWNobyAiPT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0iCmVjaG8gIiBIb3N0OiAgICAgMTI3LjAuMC4xIgplY2hvICIgUG9ydDogICAgICRQT1JUIgplY2hvICIgVXNlcm5hbWU6ICRVX0VSTkFNRSIKZWNobyAiIFBhc3N3b3JkOiAkUEFTU1dPUkQiCmVjaG8gIj09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09IgplY2hvICIiCgplY2hvICJJbnN0YWxsaW5nIFB5dGhvbiByZXF1aXJlbWVudHMuLi4iCnBpcCBpbnN0YWxsIC1yIH4vdGctd3MtcHJveHktYW5kcm9pZC9yZXF1aXJlbWVudHMudHh0CgplY2hvICJJbnN0YWxsaW5nIHRncHJveHkgY29tbWFuZC4uLiIKY2F0ID4gIiRQUkVGSVgvYmluL3RncHJveHkiIDw8ICdTQ1JJUFQnCiMhL2Jpbi9iYXNoCiMgQXV0by1raWxsIHN0YWxlIHByb2Nlc3Mgb24gdGhlIHByb3h5IHBvcnQgYmVmb3JlIHN0YXJ0aW5nClBPUlQ9JChweXRob24zIC1jICJpbXBvcnQganNvbjsgcHJpbnQoanNvbi5sb2FkKG9wZW4oJ1RnV3NQcm94eS9jb25maWcuanNvbicpKVsncG9ydCddKSIgMj4vZGV2L251bGwpCmlmIFsgLW4gIiRQT1JUIiBdOyB0aGVuCiAgICBQSUQ9JChsb2YgLXRpIDoke1BPUlR9IDI+L2Rldi9udWxsKQogICAgaWYgWyAtbiAiJFBJRCIgXTsgdGhlbgogICAgICAgIGVjaG8gIltzdGFydHVwXSBQb3J0ICR7UE9SVH0gaXMgYnVzeSAoUElEICR7UElEfSksIGtpbGxpbmcuLi4iCiAgICAgICAga2lsbCAtOSAiJFBJRCIKICAgICAgICBzbGVlcCAwLjUKICAgIGZpCmZpCmV4ZWMgcHl0aG9uIH4vdGctd3MtcHJveHktYW5kcm9pZC9hbmRyb2lkLnB5ICIkQCIKU0NSSVBUCmNobW9kICt4ICIkUFJFRklYL2Jpbi90Z3Byb3h5IgoKZWNobyAiRG9uZSEgUnVuOiB0Z3Byb3h5IgplY2hvICIiCmVjaG8gIkFjcXVpcmluZyBXYWtlIExvY2sgKGtlZXBzIEFuZHJvaWQgZnJvbSBzbGVlcGluZykuLi4iCnRlcm11eC13YWtlLWxvY2sKCnRncHJveHkK
+#!/bin/bash
+set -e
+
+echo "Installing dependencies..."
+pkg update -y
+pkg install python git rust clang python-cryptography python-psutil python-pillow -y
+
+rm -rf ~/tg-ws-proxy-android
+
+echo "Cloning repository..."
+git clone https://github.com/SurgeDriver/tg-ws-proxy-android.git ~/tg-ws-proxy-android
+
+echo "Generating credentials and port..."
+USERNAME=$(cat /dev/urandom | tr -dc 'a-z0-9' | head -c 16)
+PASSWORD=$(cat /dev/urandom | tr -dc 'a-z0-9' | head -c 24)
+# Pick a random port in the non-well-known, non-registered range: 32768-60999
+PORT=$(( ( $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % 28232 ) + 32768 ))
+
+echo "Creating config file..."
+mkdir -p ~/TgWsProxy
+cat > ~/TgWsProxy/config.json << EOF
+{
+  "port": $PORT,
+  "host": "127.0.0.1",
+  "dc_ip": [
+    "2:149.154.167.220",
+    "3:149.154.175.100",
+    "4:149.154.167.220",
+    "5:91.108.56.190"
+  ],
+  "verbose": false,
+  "username": "$USERNAME",
+  "password": "$PASSWORD",
+  "no_auth": false
+}
+EOF
+chmod 600 ~/TgWsProxy/config.json
+
+echo ""
+echo "====================================="
+echo " Telegram proxy settings (save these)"
+echo "====================================="
+echo " Host:     127.0.0.1"
+echo " Port:     $PORT"
+echo " Username: $USERNAME"
+echo " Password: $PASSWORD"
+echo "====================================="
+echo ""
+
+echo "Installing Python requirements..."
+pip install -r ~/tg-ws-proxy-android/requirements.txt
+
+echo "Installing tgproxy command..."
+cat > "$PREFIX/bin/tgproxy" << 'SCRIPT'
+#!/bin/bash
+# Auto-kill stale process on the proxy port before starting
+PORT=$(python3 -c "import json; print(json.load(open(os.path.expanduser('~/TgWsProxy/config.json')))['port'])" 2>/dev/null)
+if [ -n "$PORT" ]; then
+    PID=$(lsof -ti :${PORT} 2>/dev/null)
+    if [ -n "$PID" ]; then
+        echo "[startup] Port ${PORT} is busy (PID ${PID}), killing..."
+        kill -9 "$PID"
+        sleep 0.5
+    fi
+fi
+exec python ~/tg-ws-proxy-android/android.py "$@"
+SCRIPT
+chmod +x "$PREFIX/bin/tgproxy"
+
+echo "Done! Run: tgproxy"
+echo ""
+echo "Acquiring Wake Lock (keeps Android from sleeping)..."
+termux-wake-lock
+
+tgproxy
